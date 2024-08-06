@@ -1,0 +1,15 @@
+{
+    "seed": 42,
+    "k" : 10,
+    "num_steps": 1000,
+    "num_runs": 2000,
+    "policy": {
+        "epsilon": [0, 0.01, 0.1],
+        "initial_action_values": 0,
+        "action_update_fn": "sample_average"
+    },
+    "reward_dist": {
+        "sampling_variance": 1.0,
+        "is_nonstationary": false
+    }
+}
