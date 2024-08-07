@@ -10,6 +10,7 @@
     },
     "reward_dist": {
         "sampling_variance": 1.0,
+        "init_mean_fn": "equal",
         "is_nonstationary": false
     }
 }
