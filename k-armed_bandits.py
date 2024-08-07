@@ -5,90 +5,8 @@ import argparse
 from tqdm import tqdm
 from logger_config import logger
 from utils import *
-
-
-class RewardDistribution:
-    def __init__(
-        self,
-        k,
-        sampling_variance,
-        init_mean_fn,
-        is_nonstationary=None,
-        mean_update_fn=None,
-        **kwargs,
-    ):
-        logger.debug(
-            "Initializing RewardDistribution with k=%d, sampling_variance=%f",
-            k,
-            sampling_variance,
-        )
-        self.k = k
-        self._init_mean(init_mean_fn)
-        self.means = np.copy(self.initial_means)
-        self.variance = sampling_variance
-        if is_nonstationary:
-            self.update_fn = mean_update_fn
-            self.random_state = np.random.RandomState(seed=42)
-
-    def _init_mean(self, init_mean_fn):
-        logger.debug("Initializing means with init_mean_fn=%s", init_mean_fn)
-        if init_mean_fn == "equal":
-            self.initial_means = np.ones(self.k) * np.random.normal()
-        elif init_mean_fn == "standard_normal":
-            self.initial_means = np.random.normal(size=self.k)
-        else:
-            raise NotImplementedError
-
-    def update_means(self, **kwargs):
-        if self.update_fn == "standard_normal_increments":
-            self.means += self.random_state.normal(size=self.k, **kwargs)
-        else:
-            raise NotImplementedError
-
-    def generate_rewards(self):
-        rewards = np.random.normal(self.means, np.sqrt(self.variance))
-        logger.debug("Generated rewards: %s", rewards)
-        return rewards
-
-
-class EpsilonGreedyPolicy:
-    def __init__(self, k, epsilon, initial_action_values, action_update_fn, **kwargs):
-        logger.debug(
-            "Initializing EpsilonGreedyPolicy with k=%d, epsilon=%f", k, epsilon
-        )
-        self.k = k
-        if not (0 <= epsilon <= 1):
-            raise ValueError("Epsilon must be between 0 and 1")
-        else:
-            self.epsilon = epsilon
-        self.Q = np.ones(k) * initial_action_values
-        self.N = np.zeros(k)
-        self.update_fn = action_update_fn
-
-    def select_action(self):
-        if random.random() < self.epsilon:
-            action = np.random.randint(self.k)
-        else:
-            max_indices = np.where(self.Q == self.Q.max())[0]
-            action = np.random.choice(max_indices)
-        logger.debug("Selected action: %d", action)
-        return action
-
-    def update_action_value(self, action, reward, **kwargs):
-        self.N[action] += 1
-        if self.update_fn == "sample_average":
-            self.Q[action] = online_mean_update(
-                old_estimate=self.Q[action],
-                target=reward,
-                step_size=1.0 / self.N[action],
-            )
-        elif self.update_fn == "constant_step_size":
-            self.Q[action] = online_mean_update(
-                old_estimate=self.Q[action], target=reward, **kwargs
-            )
-        else:
-            raise NotImplementedError
-        logger.debug("Updated action value for action %d: %f", action, self.Q[action])
+from reward import RewardDistribution
+from policy import EpsilonGreedy
 
 
 class Metrics:
@@ -111,7 +29,7 @@ class Metrics:
 
 
 def run_bandits(k, num_steps, reward_distribution, policy_kwargs, reward_kwargs):
-    policy = EpsilonGreedyPolicy(k, **policy_kwargs)
+    policy = EpsilonGreedy(k, **policy_kwargs)
     rewards = np.zeros(num_steps)
     optimal_actions = np.zeros(num_steps)
 
@@ -162,7 +80,11 @@ def run_simulation(config):
             # Reset reward distribution for next run
             reward_distribution = copy.deepcopy(reward_distribution_initial)
 
-        results[policy_name] = [metrics.rewards, metrics.optimal_actions]
+        results[policy_name] = [
+            metrics.rewards, 
+            metrics.optimal_actions,
+            metrics.rewards[-num_steps//2:].mean()
+        ]
         logger.info("Completed runs for policy: %s", policy_name)
 
     return results
@@ -175,12 +97,16 @@ if __name__ == "__main__":
 
     config = read_config(args.config_file)
     config_prefix = get_config_prefix(args.config_file)
-    results = run_simulation(config)
-    metrics = {k: v[:2] for k, v in results.items()}
-    plot_results(metrics, prefix=config_prefix)
-
+    metrics = run_simulation(config)
+    plot_results(
+        {k: v[:2] for k, v in metrics.items()}, 
+        prefix=config_prefix
+    )
+    print("Avg. reward for final 50% of steps: \n")
+    for k, v in metrics.items():
+        print(f"Policy {k}: ", v[-1])
     save_metrics(
-        metrics_dict=metrics,
+        metrics_dict={k: v[:2] for k, v in metrics.items()},
         filename=f"{config_prefix}_metrics.csv",
         dir="results",
     )
